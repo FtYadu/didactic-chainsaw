@@ -4,15 +4,27 @@ A production-ready conversational AI agent with C1 Generative UI capabilities an
 
 ## Features
 
+### Core Features
 - **Multi-Provider LLM Support**: OpenAI, Google Gemini, Kimi K2 (Moonshot AI), and Qwen (Alibaba)
 - **Automatic Fallback Chain**: Primary → OpenAI, Fallbacks: Gemini → Kimi → Qwen
 - **C1 Generative UI Integration**: Render interactive components and artifacts
-- **Artifact System**: Code, documents, diagrams, React components, and charts
+- **Artifact System**: Code, documents, diagrams, React components, charts, images, and SQL
 - **Real-time Streaming**: Smooth streaming responses with loading states
 - **Inline Editing**: Edit artifacts with syntax highlighting
 - **Dark Mode**: Beautiful glassmorphism design with dark theme
 - **State Persistence**: Conversation history saved locally
 - **Production-Ready**: Error handling, retry logic, and health checks
+
+### Advanced Features ✨
+- **Voice Input**: Record audio and transcribe with OpenAI Whisper API
+- **PDF Export**: Export artifacts to beautifully formatted PDFs
+- **CodeSandbox Integration**: Open code artifacts directly in CodeSandbox
+- **GitHub Gist Publishing**: Publish artifacts as GitHub Gists
+- **Image Generation**: Create images with DALL-E 3 integration
+- **Rate Limiting**: Upstash Redis-based rate limiting for production use
+- **Analytics Dashboard**: Track usage, costs, and performance metrics
+- **Cost Estimation**: Real-time cost tracking for all LLM providers
+- **Export Options**: Download, share, copy, PDF, Gist, or CodeSandbox
 
 ## Tech Stack
 

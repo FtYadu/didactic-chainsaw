@@ -17,7 +17,10 @@ export type ArtifactType =
   | 'mermaid'
   | 'react'
   | 'chart'
-  | 'html';
+  | 'html'
+  | 'image'
+  | 'sql'
+  | 'data-viz';
 
 export interface Artifact {
   id: string;
@@ -28,6 +31,13 @@ export interface Artifact {
   version: number;
   createdAt: Date;
   updatedAt: Date;
+  metadata?: {
+    imageUrl?: string;
+    chartData?: any;
+    queryResult?: any;
+    sandbox?: string;
+    gist?: string;
+  };
 }
 
 export interface Message {
@@ -60,4 +70,37 @@ export interface ProviderHealth {
   healthy: boolean;
   lastChecked: Date;
   errorCount: number;
+}
+
+export interface UsageStats {
+  totalMessages: number;
+  totalTokens: number;
+  totalCost: number;
+  byProvider: Record<
+    LLMProvider,
+    {
+      messages: number;
+      tokens: number;
+      cost: number;
+    }
+  >;
+  byArtifactType: Record<ArtifactType, number>;
+  averageResponseTime: number;
+}
+
+export interface AnalyticsEvent {
+  id: string;
+  type: 'message' | 'artifact' | 'export' | 'error';
+  provider?: LLMProvider;
+  artifactType?: ArtifactType;
+  tokens?: number;
+  cost?: number;
+  responseTime?: number;
+  timestamp: Date;
+}
+
+export interface ExportOptions {
+  format: 'pdf' | 'gist' | 'sandbox' | 'markdown' | 'json';
+  includeMetadata?: boolean;
+  theme?: 'light' | 'dark';
 }

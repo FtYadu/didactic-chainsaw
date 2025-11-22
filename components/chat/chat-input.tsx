@@ -4,6 +4,7 @@ import { useState, useRef, KeyboardEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Send, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import { VoiceInput } from './voice-input';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -43,10 +44,20 @@ export function ChatInput({
     e.target.style.height = `${e.target.scrollHeight}px`;
   };
 
+  const handleVoiceTranscript = (transcript: string) => {
+    setInput(transcript);
+    // Auto-resize textarea
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
+
   return (
     <div className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto max-w-4xl p-4">
         <div className="relative flex items-end gap-2">
+          <VoiceInput onTranscript={handleVoiceTranscript} disabled={disabled} />
           <textarea
             ref={textareaRef}
             value={input}
@@ -77,7 +88,7 @@ export function ChatInput({
           </Button>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Press Enter to send, Shift+Enter for new line
+          Press Enter to send, Shift+Enter for new line • Click mic for voice input
         </p>
       </div>
     </div>

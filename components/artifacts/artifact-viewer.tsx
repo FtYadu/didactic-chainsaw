@@ -14,11 +14,22 @@ import {
   Code2,
   FileText,
   Image,
+  FileJson,
+  Github,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils/cn';
+import {
+  exportToPDF,
+  exportToCodeSandbox,
+  exportToGist,
+  downloadArtifact,
+} from '@/lib/utils/export';
+import { analytics } from '@/lib/analytics';
 
 interface ArtifactViewerProps {
   artifact: Artifact;
@@ -29,6 +40,8 @@ export function ArtifactViewer({ artifact }: ArtifactViewerProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(artifact.content);
   const [copied, setCopied] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const handleSave = () => {
     updateArtifact(artifact.id, editedContent);
@@ -44,18 +57,72 @@ export function ArtifactViewer({ artifact }: ArtifactViewerProps) {
     await navigator.clipboard.writeText(artifact.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+    analytics.trackExport('copy', artifact.type);
   };
 
   const handleDownload = () => {
-    const blob = new Blob([artifact.content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${artifact.title.replace(/\s+/g, '-')}.${artifact.language || 'txt'}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadArtifact(artifact);
+    analytics.trackExport('download', artifact.type);
+  };
+
+  const handleExportPDF = async () => {
+    setExporting(true);
+    try {
+      const blob = await exportToPDF(artifact, {
+        format: 'pdf',
+        includeMetadata: true,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${artifact.title.replace(/\s+/g, '-')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      analytics.trackExport('pdf', artifact.type);
+    } catch (error) {
+      console.error('PDF export failed:', error);
+      alert('Failed to export PDF');
+    } finally {
+      setExporting(false);
+      setShowExportMenu(false);
+    }
+  };
+
+  const handleExportCodeSandbox = async () => {
+    setExporting(true);
+    try {
+      const url = await exportToCodeSandbox(artifact);
+      window.open(url, '_blank');
+      analytics.trackExport('sandbox', artifact.type);
+    } catch (error) {
+      console.error('CodeSandbox export failed:', error);
+      alert('Failed to export to CodeSandbox');
+    } finally {
+      setExporting(false);
+      setShowExportMenu(false);
+    }
+  };
+
+  const handleExportGist = async () => {
+    const githubToken = prompt(
+      'Enter your GitHub Personal Access Token (needs gist scope):'
+    );
+    if (!githubToken) return;
+
+    setExporting(true);
+    try {
+      const url = await exportToGist(artifact, githubToken);
+      window.open(url, '_blank');
+      analytics.trackExport('gist', artifact.type);
+    } catch (error) {
+      console.error('Gist export failed:', error);
+      alert('Failed to create GitHub Gist. Check your token and permissions.');
+    } finally {
+      setExporting(false);
+      setShowExportMenu(false);
+    }
   };
 
   const handleShare = async () => {
@@ -65,6 +132,7 @@ export function ArtifactViewer({ artifact }: ArtifactViewerProps) {
           title: artifact.title,
           text: artifact.content,
         });
+        analytics.trackExport('share', artifact.type);
       } catch (error) {
         console.error('Error sharing:', error);
       }
@@ -109,20 +177,77 @@ export function ArtifactViewer({ artifact }: ArtifactViewerProps) {
                 variant="ghost"
                 size="icon"
                 onClick={() => setIsEditing(true)}
+                title="Edit"
               >
                 <Edit3 className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={handleCopy}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCopy}
+                title="Copy"
+              >
                 {copied ? (
                   <Check className="h-4 w-4 text-green-500" />
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
               </Button>
-              <Button variant="ghost" size="icon" onClick={handleDownload}>
-                <Download className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={handleShare}>
+              <div className="relative">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  disabled={exporting}
+                  title="Export options"
+                >
+                  {exporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                </Button>
+                {showExportMenu && (
+                  <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg">
+                    <button
+                      onClick={handleDownload}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                    >
+                      <FileText className="h-4 w-4" />
+                      Download File
+                    </button>
+                    <button
+                      onClick={handleExportPDF}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                    >
+                      <FileJson className="h-4 w-4" />
+                      Export as PDF
+                    </button>
+                    {(artifact.type === 'code' || artifact.type === 'react') && (
+                      <button
+                        onClick={handleExportCodeSandbox}
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open in CodeSandbox
+                      </button>
+                    )}
+                    <button
+                      onClick={handleExportGist}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                    >
+                      <Github className="h-4 w-4" />
+                      Publish to Gist
+                    </button>
+                  </div>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleShare}
+                title="Share"
+              >
                 <Share2 className="h-4 w-4" />
               </Button>
             </>
@@ -131,6 +256,7 @@ export function ArtifactViewer({ artifact }: ArtifactViewerProps) {
             variant="ghost"
             size="icon"
             onClick={() => selectArtifact(null)}
+            title="Close"
           >
             <X className="h-4 w-4" />
           </Button>

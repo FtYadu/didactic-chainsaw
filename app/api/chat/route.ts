@@ -7,9 +7,11 @@ import {
   PROVIDER_FALLBACK_ORDER,
 } from '@/lib/providers/config';
 import { LLMProvider } from '@/lib/types';
+import { checkRateLimit } from '@/lib/ratelimit';
 
 // Edge runtime for better streaming performance
 export const runtime = 'edge';
+export const maxDuration = 60;
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -110,7 +112,34 @@ async function tryProvidersWithFallback(
 }
 
 export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+
   try {
+    // Get client IP for rate limiting
+    const ip = req.ip || req.headers.get('x-forwarded-for') || 'anonymous';
+
+    // Check rate limit
+    const rateLimitResult = await checkRateLimit(`chat:${ip}`, 'standard');
+
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        {
+          error: 'Rate limit exceeded. Please try again later.',
+          limit: rateLimitResult.limit,
+          remaining: rateLimitResult.remaining,
+          reset: new Date(rateLimitResult.reset).toISOString(),
+        },
+        {
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': rateLimitResult.limit.toString(),
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+            'X-RateLimit-Reset': rateLimitResult.reset.toString(),
+          },
+        }
+      );
+    }
+
     const body: ChatRequest = await req.json();
 
     const {
