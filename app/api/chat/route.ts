@@ -97,7 +97,7 @@ async function tryProvidersWithFallback(
 
       return response;
     } catch (error) {
-      console.error(`Provider ${provider} failed:`, error);
+      console.error('Provider %s failed:', provider, error);
       lastError = error as Error;
 
       // Continue to next provider in fallback chain
