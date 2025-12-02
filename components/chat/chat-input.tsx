@@ -8,14 +8,18 @@ import { VoiceInput } from './voice-input';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
+  onCancel?: () => void;
   disabled?: boolean;
   placeholder?: string;
+  isStreaming?: boolean;
 }
 
 export function ChatInput({
   onSend,
+  onCancel,
   disabled = false,
   placeholder = 'Type a message...',
+  isStreaming = false,
 }: ChatInputProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -53,6 +57,8 @@ export function ChatInput({
     }
   };
 
+  const buttonDisabled = !isStreaming ? disabled || !input.trim() : false;
+
   return (
     <div className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto max-w-4xl p-4">
@@ -75,12 +81,12 @@ export function ChatInput({
             )}
           />
           <Button
-            onClick={handleSend}
-            disabled={disabled || !input.trim()}
+            onClick={isStreaming ? onCancel || (() => {}) : handleSend}
+            disabled={buttonDisabled}
             size="icon"
             className="h-10 w-10 shrink-0 rounded-full"
           >
-            {disabled ? (
+            {isStreaming ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />

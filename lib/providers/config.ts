@@ -25,9 +25,28 @@ export const PROVIDER_CONFIGS: Record<LLMProvider, Omit<ProviderConfig, 'apiKey'
     model: 'qwen-max',
     baseURL: 'https://dashscope.aliyuncs.com/api/v1',
   },
+  minimax: {
+    id: 'minimax',
+    name: 'Minimax',
+    model: 'abab6.5-chat',
+    baseURL: 'https://api.minimax.chat/v1',
+  },
+  wavespeed: {
+    id: 'wavespeed',
+    name: 'WaveSpeed',
+    model: 'wavespeed-large',
+    baseURL: 'https://api.wavespeed.ai/v1',
+  },
 };
 
-export const PROVIDER_FALLBACK_ORDER: LLMProvider[] = ['openai', 'gemini', 'kimi', 'qwen'];
+export const PROVIDER_FALLBACK_ORDER: LLMProvider[] = [
+  'openai',
+  'gemini',
+  'kimi',
+  'qwen',
+  'minimax',
+  'wavespeed',
+];
 
 export const C1_API_BASE_URL = 'https://api.thesys.dev/v1';
 
@@ -48,6 +67,8 @@ export function getProviderApiKey(provider: LLMProvider): string | undefined {
     gemini: process.env.GOOGLE_API_KEY || '',
     kimi: process.env.KIMI_API_KEY || '',
     qwen: process.env.QWEN_API_KEY || '',
+    minimax: process.env.MINIMAX_API_KEY || '',
+    wavespeed: process.env.WAVESPEED_API_KEY || '',
   };
 
   return keyMap[provider];

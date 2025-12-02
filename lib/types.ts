@@ -1,6 +1,12 @@
 // Core types for the application
 
-export type LLMProvider = 'openai' | 'gemini' | 'kimi' | 'qwen';
+export type LLMProvider =
+  | 'openai'
+  | 'gemini'
+  | 'kimi'
+  | 'qwen'
+  | 'minimax'
+  | 'wavespeed';
 
 export interface ProviderConfig {
   id: LLMProvider;

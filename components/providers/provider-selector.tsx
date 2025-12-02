@@ -81,7 +81,7 @@ export function ProviderSelector() {
               <p className="text-xs text-muted-foreground">
                 Primary: OpenAI
                 <br />
-                Fallbacks: Gemini → Kimi → Qwen
+                Fallbacks: Gemini → Kimi → Qwen → Minimax → WaveSpeed
               </p>
             </div>
           </div>

@@ -6,6 +6,7 @@ import { MessageBubble } from './message-bubble';
 import { ChatInput } from './chat-input';
 import { extractArtifactsFromContent } from '@/lib/c1/client';
 import { Loader2 } from 'lucide-react';
+import { AgentEvent } from '@/lib/agent/types';
 
 export function ChatInterface() {
   const {
@@ -13,6 +14,7 @@ export function ChatInterface() {
     addMessage,
     updateMessage,
     addArtifact,
+    selectArtifact,
     isStreaming,
     setStreaming,
     settings,
@@ -22,6 +24,8 @@ export function ChatInterface() {
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
     null
   );
+  const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -41,6 +45,7 @@ export function ChatInterface() {
     });
 
     setStreaming(true);
+    setAgentEvents([]);
 
     try {
       // Create assistant message placeholder
@@ -52,8 +57,11 @@ export function ChatInterface() {
 
       setStreamingMessageId(assistantMessage.id);
 
-      // Call chat API with streaming
-      const response = await fetch('/api/chat', {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      // Call agent API with streaming
+      const response = await fetch('/api/agent', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -73,6 +81,7 @@ export function ChatInterface() {
           temperature: settings.temperature,
           maxTokens: settings.maxTokens,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -87,6 +96,39 @@ export function ChatInterface() {
       }
 
       let accumulatedContent = '';
+      let buffered = '';
+
+      const handleAgentEvent = (rawEvent: string) => {
+        const cleaned = rawEvent.trim().replace(/^data:\s*/, '');
+        if (!cleaned) return;
+
+        try {
+          const event: AgentEvent = JSON.parse(cleaned);
+          setAgentEvents((prev) => [...prev, event]);
+
+          if (event.type === 'final') {
+            accumulatedContent = event.content;
+            updateMessage(assistantMessage.id, {
+              content: accumulatedContent,
+              provider: settings.provider,
+            });
+          }
+
+          if (event.type === 'observation' && event.artifact) {
+            const created = addArtifact(event.artifact);
+            selectArtifact(created);
+          }
+
+          if (event.type === 'thought' || event.type === 'action') {
+            const statusLine = `\n\n_${event.content}_`;
+            updateMessage(assistantMessage.id, {
+              content: accumulatedContent + statusLine,
+            });
+          }
+        } catch (error) {
+          console.error('Failed to parse agent event', error, rawEvent);
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -96,46 +138,61 @@ export function ChatInterface() {
         }
 
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        buffered += chunk;
 
-        for (const line of lines) {
-          if (line.startsWith('0:')) {
-            // Extract the actual content
-            const content = line.slice(2).replace(/^"(.*)"$/, '$1');
-            if (content) {
-              accumulatedContent += content;
-              updateMessage(assistantMessage.id, {
-                content: accumulatedContent,
-              });
-            }
-          }
+        const events = buffered.split('\n\n');
+        buffered = events.pop() || '';
+
+        for (const rawEvent of events) {
+          handleAgentEvent(rawEvent);
         }
       }
 
-      // Extract artifacts from the final content
-      const { artifacts } = extractArtifactsFromContent(accumulatedContent);
+      if (buffered.trim()) {
+        handleAgentEvent(buffered);
+      }
 
-      // Add artifacts to the conversation
-      artifacts.forEach((artifact) => {
-        addArtifact(artifact);
-      });
+      if (accumulatedContent) {
+        // Extract artifacts from the final content
+        const { artifacts } = extractArtifactsFromContent(accumulatedContent);
 
-      // Update message with artifacts
-      if (artifacts.length > 0) {
-        updateMessage(assistantMessage.id, {
-          artifacts,
+        // Add artifacts to the conversation
+        artifacts.forEach((artifact) => {
+          addArtifact(artifact);
+        });
+
+        // Update message with artifacts
+        if (artifacts.length > 0) {
+          updateMessage(assistantMessage.id, {
+            artifacts,
+          });
+        }
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        updateMessage(streamingMessageId || '', {
+          content: 'Response cancelled.',
+        });
+      } else {
+        console.error('Error sending message:', error);
+        addMessage({
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please try again.',
         });
       }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      addMessage({
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-      });
     } finally {
       setStreaming(false);
       setStreamingMessageId(null);
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setStreaming(false);
+    setStreamingMessageId(null);
   };
 
   return (
@@ -160,6 +217,41 @@ export function ChatInterface() {
               <MessageBubble key={message.id} message={message} />
             ))}
 
+            {agentEvents.length > 0 && (
+              <div className="px-4 py-2">
+                <div className="rounded-lg border bg-muted/40 p-3 text-sm shadow-sm">
+                  <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+                    Agent activity
+                  </div>
+                  <div className="space-y-2">
+                    {agentEvents.map((event, index) => (
+                      <div
+                        key={`${event.type}-${index}`}
+                        className="flex items-start gap-2"
+                      >
+                        <div className="rounded-md bg-primary/10 px-2 py-1 text-[11px] font-semibold uppercase text-primary">
+                          {event.type}
+                        </div>
+                        <div className="space-y-1">
+                          {event.title && (
+                            <div className="text-xs font-semibold text-foreground">
+                              {event.title}
+                            </div>
+                          )}
+                          <div className="text-muted-foreground">{event.content}</div>
+                          {event.tool && (
+                            <div className="text-[11px] text-muted-foreground">
+                              Tool: {event.tool}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {isStreaming && (
               <div className="flex gap-3 px-4 py-6">
                 <div className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-cyan-500">
@@ -179,7 +271,12 @@ export function ChatInterface() {
       </div>
 
       {/* Input */}
-      <ChatInput onSend={handleSendMessage} disabled={isStreaming} />
+      <ChatInput
+        onSend={handleSendMessage}
+        onCancel={handleCancel}
+        disabled={isStreaming}
+        isStreaming={isStreaming}
+      />
     </div>
   );
 }
