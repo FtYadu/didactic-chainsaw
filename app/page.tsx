@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useChatStore } from '@/lib/store';
 import { ChatInterface } from '@/components/chat/chat-interface';
 import { ArtifactPanel } from '@/components/artifacts/artifact-panel';
@@ -14,8 +14,12 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import { AgentWorkspace } from '@/components/workspace/agent-workspace';
 
 export default function Home() {
+  const [activePanel, setActivePanel] = useState<'workspace' | 'artifacts'>(
+    'workspace'
+  );
   const {
     currentConversation,
     conversations,
@@ -29,7 +33,7 @@ export default function Home() {
     if (!currentConversation && conversations.length === 0) {
       createConversation();
     }
-  }, []);
+  }, [conversations.length, createConversation, currentConversation]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-gradient-to-br from-background via-background to-muted/20">
@@ -82,10 +86,30 @@ export default function Home() {
           <ChatInterface />
         </div>
 
-        {/* Artifact Panel */}
+        {/* Artifact/Workspace Panel */}
         {sidebarOpen && (
-          <div className="w-full md:w-96 lg:w-[500px]">
-            <ArtifactPanel />
+          <div className="w-full min-w-[320px] border-l border-border bg-background md:w-[420px] lg:w-[520px]">
+            <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-2">
+              <Button
+                variant={activePanel === 'workspace' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setActivePanel('workspace')}
+                className="flex-1"
+              >
+                Workspace
+              </Button>
+              <Button
+                variant={activePanel === 'artifacts' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setActivePanel('artifacts')}
+                className="flex-1"
+              >
+                Artifacts
+              </Button>
+            </div>
+            <div className="flex-1 min-h-0">
+              {activePanel === 'workspace' ? <AgentWorkspace /> : <ArtifactPanel />}
+            </div>
           </div>
         )}
       </div>

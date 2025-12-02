@@ -3,7 +3,8 @@
 import { useChatStore } from '@/lib/store';
 import { ArtifactViewer } from './artifact-viewer';
 import { Card } from '@/components/ui/card';
-import { Code2, FileText, Image } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Code2, FileText, Image as ImageIcon, PanelRightOpen } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { Artifact, ArtifactType } from '@/lib/types';
 
@@ -12,6 +13,7 @@ export function ArtifactPanel() {
   const currentConversation = store.currentConversation;
   const selectedArtifact = store.selectedArtifact as Artifact | null;
   const selectArtifact = store.selectArtifact;
+  const openArtifactInWorkspace = store.openArtifactInWorkspace;
 
   const getIcon = (type: ArtifactType) => {
     switch (type) {
@@ -22,7 +24,7 @@ export function ArtifactPanel() {
         return <FileText className="h-4 w-4" />;
       case 'mermaid':
       case 'chart':
-        return <Image className="h-4 w-4" />;
+        return <ImageIcon className="h-4 w-4" />;
       default:
         return <FileText className="h-4 w-4" />;
     }
@@ -92,6 +94,18 @@ export function ArtifactPanel() {
                         {artifact.language || artifact.type} • v{artifact.version}
                       </p>
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="ml-2"
+                      title="Open in workspace"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openArtifactInWorkspace(artifact as Artifact);
+                      }}
+                    >
+                      <PanelRightOpen className="h-4 w-4" />
+                    </Button>
                   </div>
                 </Card>
               );

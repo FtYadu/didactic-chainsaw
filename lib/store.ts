@@ -7,6 +7,7 @@ import type {
   Artifact,
   LLMProvider,
   ChatSettings,
+  WorkspaceItem,
 } from './types';
 
 interface ChatState {
@@ -16,6 +17,7 @@ interface ChatState {
 
   // UI State
   selectedArtifact: Artifact | null;
+  selectedWorkspaceItemId: string | null;
   isStreaming: boolean;
   sidebarOpen: boolean;
 
@@ -31,6 +33,13 @@ interface ChatState {
   addArtifact: (artifact: Omit<Artifact, 'id' | 'createdAt' | 'updatedAt' | 'version'>) => Artifact;
   updateArtifact: (id: string, content: string) => void;
   selectArtifact: (artifact: Artifact | null) => void;
+  addWorkspaceItem: (
+    item: Omit<WorkspaceItem, 'id' | 'createdAt' | 'updatedAt'>
+  ) => WorkspaceItem | null;
+  updateWorkspaceItem: (id: string, updates: Partial<WorkspaceItem>) => void;
+  removeWorkspaceItem: (id: string) => void;
+  selectWorkspaceItem: (id: string | null) => void;
+  openArtifactInWorkspace: (artifact: Artifact) => void;
   setStreaming: (streaming: boolean) => void;
   toggleSidebar: () => void;
   updateSettings: (settings: Partial<ChatSettings>) => void;
@@ -43,6 +52,7 @@ export const useChatStore = create<ChatState>()(
       currentConversation: null,
       conversations: [],
       selectedArtifact: null,
+      selectedWorkspaceItemId: null,
       isStreaming: false,
       sidebarOpen: true,
       settings: {
@@ -58,6 +68,7 @@ export const useChatStore = create<ChatState>()(
           title: 'New Conversation',
           messages: [],
           artifacts: [],
+          workspaceItems: [],
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -65,13 +76,17 @@ export const useChatStore = create<ChatState>()(
         set((state) => ({
           conversations: [newConversation, ...state.conversations],
           currentConversation: newConversation,
+          selectedWorkspaceItemId: null,
         }));
       },
 
       selectConversation: (id: string) => {
         const conversation = get().conversations.find((c) => c.id === id);
         if (conversation) {
-          set({ currentConversation: conversation });
+          set({
+            currentConversation: conversation,
+            selectedWorkspaceItemId: conversation.workspaceItems?.[0]?.id || null,
+          });
         }
       },
 
@@ -80,10 +95,13 @@ export const useChatStore = create<ChatState>()(
           const conversations = state.conversations.filter((c) => c.id !== id);
           const currentConversation =
             state.currentConversation?.id === id ? null : state.currentConversation;
+          const selectedWorkspaceItemId =
+            state.currentConversation?.id === id ? null : state.selectedWorkspaceItemId;
 
           return {
             conversations,
             currentConversation,
+            selectedWorkspaceItemId,
           };
         });
       },
@@ -97,18 +115,20 @@ export const useChatStore = create<ChatState>()(
 
         set((state) => {
           if (!state.currentConversation) {
-            const newConversation: Conversation = {
-              id: nanoid(),
-              title: message.content.slice(0, 50),
-              messages: [newMessage],
-              artifacts: [],
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            };
+          const newConversation: Conversation = {
+            id: nanoid(),
+            title: message.content.slice(0, 50),
+            messages: [newMessage],
+            artifacts: [],
+            workspaceItems: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
 
             return {
               currentConversation: newConversation,
               conversations: [newConversation, ...state.conversations],
+              selectedWorkspaceItemId: null,
             };
           }
 
@@ -215,6 +235,116 @@ export const useChatStore = create<ChatState>()(
         set({ selectedArtifact: artifact });
       },
 
+      addWorkspaceItem: (item) => {
+        const { currentConversation } = get();
+        if (!currentConversation) return null;
+
+        const newItem: WorkspaceItem = {
+          ...item,
+          id: nanoid(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        set((state) => {
+          const updatedConversation = {
+            ...state.currentConversation!,
+            workspaceItems: [
+              ...(state.currentConversation!.workspaceItems || []),
+              newItem,
+            ],
+            updatedAt: new Date(),
+          };
+
+          return {
+            currentConversation: updatedConversation,
+            conversations: state.conversations.map((c) =>
+              c.id === updatedConversation.id ? updatedConversation : c
+            ),
+            selectedWorkspaceItemId: newItem.id,
+          };
+        });
+
+        return newItem;
+      },
+
+      updateWorkspaceItem: (id, updates) => {
+        set((state) => {
+          if (!state.currentConversation) return state;
+
+          const updatedConversation = {
+            ...state.currentConversation,
+            workspaceItems: (state.currentConversation.workspaceItems || []).map(
+              (item) =>
+                item.id === id
+                  ? { ...item, ...updates, updatedAt: new Date() }
+                  : item
+            ),
+            updatedAt: new Date(),
+          };
+
+          return {
+            currentConversation: updatedConversation,
+            conversations: state.conversations.map((c) =>
+              c.id === updatedConversation.id ? updatedConversation : c
+            ),
+          };
+        });
+      },
+
+      removeWorkspaceItem: (id) => {
+        set((state) => {
+          if (!state.currentConversation) return state;
+
+          const updatedConversation = {
+            ...state.currentConversation,
+            workspaceItems: (state.currentConversation.workspaceItems || []).filter(
+              (item) => item.id !== id
+            ),
+            updatedAt: new Date(),
+          };
+
+          const selectedWorkspaceItemId =
+            state.selectedWorkspaceItemId === id
+              ? updatedConversation.workspaceItems[0]?.id || null
+              : state.selectedWorkspaceItemId;
+
+          return {
+            currentConversation: updatedConversation,
+            conversations: state.conversations.map((c) =>
+              c.id === updatedConversation.id ? updatedConversation : c
+            ),
+            selectedWorkspaceItemId,
+          };
+        });
+      },
+
+      selectWorkspaceItem: (id) => {
+        set({ selectedWorkspaceItemId: id });
+      },
+
+      openArtifactInWorkspace: (artifact) => {
+        const { currentConversation } = get();
+        if (!currentConversation) return;
+
+        const workspaceItems = currentConversation.workspaceItems || [];
+
+        const existingItem = workspaceItems.find(
+          (item) => item.type === 'artifact' && item.artifactId === artifact.id
+        );
+
+        if (existingItem) {
+          set({ selectedWorkspaceItemId: existingItem.id });
+          return;
+        }
+
+        get().addWorkspaceItem({
+          title: artifact.title,
+          type: 'artifact',
+          artifactId: artifact.id,
+        });
+      },
+
       setStreaming: (streaming: boolean) => {
         set({ isStreaming: streaming });
       },
@@ -237,6 +367,7 @@ export const useChatStore = create<ChatState>()(
             ...state.currentConversation,
             messages: [],
             artifacts: [],
+            workspaceItems: [],
             updatedAt: new Date(),
           };
 
@@ -246,6 +377,7 @@ export const useChatStore = create<ChatState>()(
               c.id === updatedConversation.id ? updatedConversation : c
             ),
             selectedArtifact: null,
+            selectedWorkspaceItemId: null,
           };
         });
       },
@@ -255,6 +387,7 @@ export const useChatStore = create<ChatState>()(
       partialize: (state: any) => ({
         conversations: state.conversations,
         settings: state.settings,
+        selectedWorkspaceItemId: state.selectedWorkspaceItemId,
       }),
     } as any
   )

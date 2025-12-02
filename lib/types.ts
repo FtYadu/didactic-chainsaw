@@ -49,11 +49,24 @@ export interface Message {
   provider?: LLMProvider;
 }
 
+export type WorkspaceContentType = 'artifact' | 'note' | 'preview';
+
+export interface WorkspaceItem {
+  id: string;
+  type: WorkspaceContentType;
+  title: string;
+  artifactId?: string;
+  content?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Conversation {
   id: string;
   title: string;
   messages: Message[];
   artifacts: Artifact[];
+  workspaceItems: WorkspaceItem[];
   createdAt: Date;
   updatedAt: Date;
 }

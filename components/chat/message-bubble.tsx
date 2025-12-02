@@ -5,13 +5,27 @@ import { cn } from '@/lib/utils/cn';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Button } from '@/components/ui/button';
+import { PanelRightOpen } from 'lucide-react';
+import { useChatStore } from '@/lib/store';
 
 interface MessageBubbleProps {
   message: Message;
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
+  const { addWorkspaceItem } = useChatStore();
   const isUser = message.role === 'user';
+
+  const handleOpenInWorkspace = () => {
+    if (!message.content) return;
+
+    addWorkspaceItem({
+      title: `${isUser ? 'User' : 'Assistant'} note`,
+      type: 'note',
+      content: message.content,
+    });
+  };
 
   return (
     <div
@@ -83,11 +97,18 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </ReactMarkdown>
         </div>
 
-        {message.provider && (
-          <div className="text-xs text-muted-foreground">
-            via {message.provider}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          {message.provider && <span>via {message.provider}</span>}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={handleOpenInWorkspace}
+          >
+            <PanelRightOpen className="h-3 w-3" />
+            Open in workspace
+          </Button>
+        </div>
       </div>
     </div>
   );
