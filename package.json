@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "14.2.13",
+    "next": "14.2.32",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "typescript": "5.4.5",
@@ -21,13 +21,13 @@
     "postcss": "8.4.38",
     "zustand": "4.5.2",
     "openai": "4.28.4",
-    "ai": "3.0.23",
+    "ai": "5.0.52",
     "zod": "3.23.8",
-    "nanoid": "5.0.7",
-    "react-syntax-highlighter": "15.5.0",
+    "nanoid": "5.0.9",
+    "react-syntax-highlighter": "16.1.0",
     "@types/react-syntax-highlighter": "15.5.11",
     "react-markdown": "9.0.1",
-    "mermaid": "10.9.0",
+    "mermaid": "10.9.4",
     "recharts": "2.12.7",
     "lucide-react": "0.363.0",
     "class-variance-authority": "0.7.0",
@@ -35,11 +35,11 @@
     "tailwind-merge": "2.3.0",
     "@upstash/ratelimit": "1.0.3",
     "@upstash/redis": "1.28.4",
-    "jspdf": "2.5.1",
+    "jspdf": "3.0.2",
     "html2canvas": "1.4.1",
     "date-fns": "3.6.0",
     "framer-motion": "11.1.7",
-    "@octokit/rest": "20.1.1"
+    "@octokit/rest": "20.1.2"
   },
   "devDependencies": {
     "eslint": "8.57.0",
