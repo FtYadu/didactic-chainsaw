@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { OpenAIStream, StreamingTextResponse } from 'ai';
+import { OpenAIStream } from 'ai';
 import {
   getProviderConfig,
   getAvailableProviders,
@@ -25,35 +25,306 @@ interface ChatRequest {
   maxTokens?: number;
 }
 
+type ProviderStreamFactory = (
+  provider: LLMProvider,
+  messages: ChatMessage[],
+  temperature: number,
+  maxTokens: number
+) => Promise<ReadableStream<Uint8Array>>;
+
+class RateLimitError extends Error {
+  limit: number;
+  remaining: number;
+  reset: number;
+
+  constructor(limit: number, remaining: number, reset: number) {
+    super('Rate limit exceeded. Please try again later.');
+    this.limit = limit;
+    this.remaining = remaining;
+    this.reset = reset;
+  }
+}
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+function formatTextChunk(text: string) {
+  const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return encoder.encode(`0:"${escaped}"\n`);
+}
+
+function createSSETextStream(
+  response: Response,
+  extractText: (data: any) => string | null
+): ReadableStream<Uint8Array> {
+  if (!response.body) {
+    throw new Error('No response body from provider');
+  }
+
+  const reader = response.body.getReader();
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line || line === 'data: [DONE]') continue;
+
+          const dataLine = line.startsWith('data:')
+            ? line.slice(5).trim()
+            : line;
+
+          try {
+            const payload = JSON.parse(dataLine);
+            const text = extractText(payload);
+            if (text) {
+              controller.enqueue(formatTextChunk(text));
+            }
+          } catch (err) {
+            console.error('Failed to parse provider stream chunk', err, line);
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        try {
+          const payload = JSON.parse(buffer.trim());
+          const text = extractText(payload);
+          if (text) {
+            controller.enqueue(formatTextChunk(text));
+          }
+        } catch (err) {
+          console.error('Failed to parse remaining provider buffer', err);
+        }
+      }
+
+      controller.close();
+    },
+  });
+}
+
+function normalizeOpenAIChoices(data: any): string | null {
+  const choice = data?.choices?.[0];
+  const delta = choice?.delta || choice?.message;
+
+  if (!delta) return null;
+
+  if (typeof delta.content === 'string') return delta.content;
+
+  if (Array.isArray(delta.content)) {
+    return delta.content
+      .map((part) => (part?.text ? part.text : part?.type === 'text' ? part.text : ''))
+      .join('');
+  }
+
+  if (delta?.content?.[0]?.text) return delta.content[0].text;
+
+  return null;
+}
+
+function normalizeGeminiCandidates(data: any): string | null {
+  const candidate = data?.candidates?.[0];
+  if (!candidate) return null;
+
+  if (candidate?.content?.parts) {
+    return candidate.content.parts.map((part: any) => part?.text || '').join('');
+  }
+
+  if (candidate?.delta?.text) {
+    return candidate.delta.text;
+  }
+
+  return null;
+}
+
+const providerStreams: Record<LLMProvider, ProviderStreamFactory> = {
+  openai: async (provider, messages, temperature, maxTokens) => {
+    const config = getProviderConfig(provider);
+    if (!config.enabled || !config.apiKey) {
+      throw new Error(`Provider ${provider} is not configured`);
+    }
+
+    const client = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+    });
+
+    const stream = await client.chat.completions.create({
+      model: config.model,
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+      temperature,
+      max_tokens: maxTokens,
+      stream: true,
+    });
+
+    return OpenAIStream(stream as any) as unknown as ReadableStream<Uint8Array>;
+  },
+  gemini: async (provider, messages, temperature, maxTokens) => {
+    const config = getProviderConfig(provider);
+    if (!config.enabled || !config.apiKey) {
+      throw new Error(`Provider ${provider} is not configured`);
+    }
+
+    const url = `${config.baseURL}/models/${config.model}:streamGenerateContent?key=${config.apiKey}`;
+    const geminiMessages = messages.map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: geminiMessages,
+        generationConfig: {
+          temperature,
+          maxOutputTokens: maxTokens,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini request failed: ${errorText}`);
+    }
+
+    return createSSETextStream(response, normalizeGeminiCandidates);
+  },
+  minimax: async (provider, messages, temperature, maxTokens) => {
+    const config = getProviderConfig(provider);
+    if (!config.enabled || !config.apiKey) {
+      throw new Error(`Provider ${provider} is not configured`);
+    }
+
+    const response = await fetch(`${config.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Minimax request failed: ${errorText}`);
+    }
+
+    return createSSETextStream(response, normalizeOpenAIChoices);
+  },
+  wavespeed: async (provider, messages, temperature, maxTokens) => {
+    const config = getProviderConfig(provider);
+    if (!config.enabled || !config.apiKey) {
+      throw new Error(`Provider ${provider} is not configured`);
+    }
+
+    const response = await fetch(`${config.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`WaveSpeed request failed: ${errorText}`);
+    }
+
+    return createSSETextStream(response, normalizeOpenAIChoices);
+  },
+  kimi: async (provider, messages, temperature, maxTokens) => {
+    const config = getProviderConfig(provider);
+    if (!config.enabled || !config.apiKey) {
+      throw new Error(`Provider ${provider} is not configured`);
+    }
+
+    const client = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+    });
+
+    const stream = await client.chat.completions.create({
+      model: config.model,
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+      temperature,
+      max_tokens: maxTokens,
+      stream: true,
+    });
+
+    return OpenAIStream(stream as any) as unknown as ReadableStream<Uint8Array>;
+  },
+  qwen: async (provider, messages, temperature, maxTokens) => {
+    const config = getProviderConfig(provider);
+    if (!config.enabled || !config.apiKey) {
+      throw new Error(`Provider ${provider} is not configured`);
+    }
+
+    const client = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+    });
+
+    const stream = await client.chat.completions.create({
+      model: config.model,
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+      temperature,
+      max_tokens: maxTokens,
+      stream: true,
+    });
+
+    return OpenAIStream(stream as any) as unknown as ReadableStream<Uint8Array>;
+  },
+};
+
 async function createChatCompletion(
   provider: LLMProvider,
   messages: ChatMessage[],
   temperature: number,
   maxTokens: number
 ): Promise<Response> {
-  const config = getProviderConfig(provider);
+  const streamFactory = providerStreams[provider];
 
-  if (!config.enabled || !config.apiKey) {
-    throw new Error(`Provider ${provider} is not configured`);
+  if (!streamFactory) {
+    throw new Error(`Provider ${provider} is not supported`);
   }
 
-  const client = new OpenAI({
-    apiKey: config.apiKey,
-    baseURL: config.baseURL,
-  });
+  const stream = await streamFactory(provider, messages, temperature, maxTokens);
 
-  const stream = await client.chat.completions.create({
-    model: config.model,
-    messages: messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })),
-    temperature,
-    max_tokens: maxTokens,
-    stream: true,
-  });
-
-  return new Response(OpenAIStream(stream as any), {
+  return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -66,7 +337,8 @@ async function tryProvidersWithFallback(
   preferredProvider: LLMProvider,
   messages: ChatMessage[],
   temperature: number,
-  maxTokens: number
+  maxTokens: number,
+  ip: string
 ): Promise<Response> {
   const availableProviders = getAvailableProviders();
 
@@ -83,6 +355,19 @@ async function tryProvidersWithFallback(
   let lastError: Error | null = null;
 
   for (const provider of fallbackChain) {
+    const rateLimitResult = await checkRateLimit(
+      `chat:${provider}:${ip}`,
+      'standard'
+    );
+
+    if (!rateLimitResult.success) {
+      throw new RateLimitError(
+        rateLimitResult.limit,
+        rateLimitResult.remaining,
+        rateLimitResult.reset
+      );
+    }
+
     try {
       console.log(`Attempting to use provider: ${provider}`);
       const response = await createChatCompletion(
@@ -112,33 +397,9 @@ async function tryProvidersWithFallback(
 }
 
 export async function POST(req: NextRequest) {
-  const startTime = Date.now();
-
   try {
     // Get client IP for rate limiting
     const ip = req.ip || req.headers.get('x-forwarded-for') || 'anonymous';
-
-    // Check rate limit
-    const rateLimitResult = await checkRateLimit(`chat:${ip}`, 'standard');
-
-    if (!rateLimitResult.success) {
-      return NextResponse.json(
-        {
-          error: 'Rate limit exceeded. Please try again later.',
-          limit: rateLimitResult.limit,
-          remaining: rateLimitResult.remaining,
-          reset: new Date(rateLimitResult.reset).toISOString(),
-        },
-        {
-          status: 429,
-          headers: {
-            'X-RateLimit-Limit': rateLimitResult.limit.toString(),
-            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
-            'X-RateLimit-Reset': rateLimitResult.reset.toString(),
-          },
-        }
-      );
-    }
 
     const body: ChatRequest = await req.json();
 
@@ -185,11 +446,31 @@ Provide clear explanations and well-structured, production-ready code.`,
       provider,
       messagesWithSystem,
       temperature,
-      maxTokens
+      maxTokens,
+      ip
     );
 
     return response;
   } catch (error) {
+    if (error instanceof RateLimitError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          limit: error.limit,
+          remaining: error.remaining,
+          reset: new Date(error.reset).toISOString(),
+        },
+        {
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': error.limit.toString(),
+            'X-RateLimit-Remaining': error.remaining.toString(),
+            'X-RateLimit-Reset': error.reset.toString(),
+          },
+        }
+      );
+    }
+
     console.error('Chat API error:', error);
 
     return NextResponse.json(

@@ -5,6 +5,8 @@ import { nanoid } from 'nanoid';
 const PROVIDER_PRICING: Record<LLMProvider, number> = {
   openai: 0.01, // GPT-4 Turbo average
   gemini: 0.0005, // Gemini Pro
+  minimax: 0.0015, // Minimax average pricing placeholder
+  wavespeed: 0.0015, // WaveSpeed estimated pricing
   kimi: 0.002, // Moonshot K2
   qwen: 0.001, // Qwen Max
 };
