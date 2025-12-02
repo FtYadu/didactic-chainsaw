@@ -13,11 +13,12 @@ import {
   Check,
   Code2,
   FileText,
-  Image,
+  Image as ImageIcon,
   FileJson,
   Github,
   ExternalLink,
   Loader2,
+  PanelRightOpen,
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -36,7 +37,7 @@ interface ArtifactViewerProps {
 }
 
 export function ArtifactViewer({ artifact }: ArtifactViewerProps) {
-  const { updateArtifact, selectArtifact } = useChatStore();
+  const { updateArtifact, selectArtifact, openArtifactInWorkspace } = useChatStore();
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(artifact.content);
   const [copied, setCopied] = useState(false);
@@ -150,7 +151,7 @@ export function ArtifactViewer({ artifact }: ArtifactViewerProps) {
         return <FileText className="h-4 w-4" />;
       case 'mermaid':
       case 'chart':
-        return <Image className="h-4 w-4" />;
+        return <ImageIcon className="h-4 w-4" />;
       default:
         return <FileText className="h-4 w-4" />;
     }
@@ -173,12 +174,20 @@ export function ArtifactViewer({ artifact }: ArtifactViewerProps) {
         <div className="flex items-center gap-1">
           {!isEditing && (
             <>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setIsEditing(true)}
-                title="Edit"
-              >
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => openArtifactInWorkspace(artifact)}
+            title="Open in workspace"
+          >
+            <PanelRightOpen className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsEditing(true)}
+            title="Edit"
+          >
                 <Edit3 className="h-4 w-4" />
               </Button>
               <Button
